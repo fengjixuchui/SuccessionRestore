@@ -10,6 +10,7 @@
 #import "RestoreViewController.h"
 #include <sys/sysctl.h>
 #import "NSTask.h"
+#import <spawn.h>
 
 @interface RestoreViewController ()
 
@@ -51,7 +52,7 @@
         [[self restoreProgressBar] setHidden:TRUE];
     } else {
         [[self titleLabel] setText:@"Attaching..."];
-        [[self subtitleLabel] setText:@""];
+        [[self subtitleLabel] setText:@"This should take less than 10 seconds"];
         [[self eraseButton] setTitle:@"Please Wait..." forState:UIControlStateNormal];
         if (@available(iOS 13.0, *)) {
             [[self eraseButton] setTitleColor:[UIColor labelColor] forState:UIControlStateNormal];
@@ -98,6 +99,7 @@
                 if (!error) {
                     [self attachDiskImage];
                 } else {
+                    [self logToFile:[NSString stringWithFormat:@"Got %@ when trying to create mountpoint, using bypass.", [error localizedDescription]] atLineNumber:__LINE__];
                     [self mountPointCreationBypass];
                 }
             } else {
@@ -110,6 +112,7 @@
         if (!error) {
             [self attachDiskImage];
         } else {
+            [self logToFile:[NSString stringWithFormat:@"Got %@ when trying to create mountpoint, using bypass.", [error localizedDescription]] atLineNumber:__LINE__];
             [self mountPointCreationBypass];
         }
     }
@@ -173,6 +176,7 @@
         NSPipe *stdOutPipe = [NSPipe pipe];
         NSFileHandle *outPipeRead = [stdOutPipe fileHandleForReading];
         [hdikTask setStandardOutput:stdOutPipe];
+        [hdikTask setStandardError:stdOutPipe];
         hdikTask.terminationHandler = ^{
             NSData *outData = [outPipeRead readDataToEndOfFile];
             NSString *outString = [[NSString alloc] initWithData:outData encoding:NSUTF8StringEncoding];
@@ -180,6 +184,7 @@
             if ([outString containsString:@"disk"]) {
                 NSArray *outLines = [outString componentsSeparatedByString:[NSString stringWithFormat:@"\n"]];
                 [self logToFile:[outLines componentsJoinedByString:@",\n"] atLineNumber:__LINE__];
+                [self logToFile:[NSString stringWithFormat:@"outlines count: %lu", (unsigned long)[outLines count]] atLineNumber:__LINE__];
                 if ([outLines count] > 1) {
                     for (NSString *line in outLines) {
                         [self logToFile:[NSString stringWithFormat:@"current line is %@", line]  atLineNumber:__LINE__];
@@ -199,6 +204,35 @@
                     NSString *diskPath = [outLines firstObject];
                     [self logToFile:[NSString stringWithFormat:@"found attached diskpath %@", diskPath] atLineNumber:__LINE__];
                     [self prepareMountAttachedDisk:diskPath];
+                }
+            } else if ([outString containsString:@"must be run by root"]) {
+                [self logToFile:[NSString stringWithFormat:@"I am: %d", getuid()] atLineNumber:__LINE__];
+                pid_t pid;
+                int i;
+                const char* args[] = {"hdik", "/var/mobile/Media/Succession/rfs.dmg", NULL};
+                posix_spawn(&pid, "/Applications/SuccessionRestore.app/hdik", NULL, NULL, (char* const*)args, NULL);
+                waitpid(pid, &i, 0);
+                NSMutableArray *changedDevContents = [NSMutableArray arrayWithArray:[[NSFileManager defaultManager] contentsOfDirectoryAtPath:@"/dev/" error:nil]];
+                [changedDevContents removeObjectsInArray:beforeAttachDevContents];
+                [self logToFile:[NSString stringWithFormat:@"changedDevContents: %@", [changedDevContents componentsJoinedByString:@" "]] atLineNumber:__LINE__];
+                if ([[changedDevContents componentsJoinedByString:@" "] containsString:@"s2"]) {
+                    for (NSString *attachedDisk in changedDevContents) {
+                        if (![attachedDisk containsString:@"r"]) {
+                            if ([attachedDisk containsString:@"s2"]) {
+                                NSString *diskPath = [NSString stringWithFormat:@"/dev/%@", attachedDisk];
+                                [self logToFile:[NSString stringWithFormat:@"found attached diskpath %@", diskPath] atLineNumber:__LINE__];
+                                [self prepareMountAttachedDisk:diskPath];
+                            }
+                        }
+                    }
+                } else {
+                    for (NSString *attachedDisk in changedDevContents) {
+                        if ([attachedDisk hasPrefix:@"disk"]) {
+                            NSString *diskPath = [NSString stringWithFormat:@"/dev/%@", attachedDisk];
+                            [self logToFile:[NSString stringWithFormat:@"found attached diskpath %@", diskPath] atLineNumber:__LINE__];
+                            [self prepareMountAttachedDisk:diskPath];
+                        }
+                    }
                 }
             } else {
                 NSMutableArray *changedDevContents = [NSMutableArray arrayWithArray:[[NSFileManager defaultManager] contentsOfDirectoryAtPath:@"/dev/" error:nil]];
@@ -236,6 +270,7 @@
         NSPipe *stdOutPipe = [NSPipe pipe];
         NSFileHandle *outPipeRead = [stdOutPipe fileHandleForReading];
         [attachTask setStandardOutput:stdOutPipe];
+        [attachTask setStandardError:stdOutPipe];
         [attachTask launch];
         [attachTask waitUntilExit];
         NSData *outData = [outPipeRead readDataToEndOfFile];
@@ -360,7 +395,7 @@
     [self logToFile:@"tappedRestoreButton called" atLineNumber:__LINE__];
     if ([[_successionPrefs objectForKey:@"create_APFS_succession-prerestore"] isEqual:@(1)] || [[_successionPrefs objectForKey:@"create_APFS_orig-fs"] isEqual:@(1)]) {
         [self logToFile:@"snappy operations enabled" atLineNumber:__LINE__];
-        if (kCFCoreFoundationVersionNumber > 1349.56) {
+        if (kCFCoreFoundationVersionNumber >= 1349.56) {
             [self logToFile:@"ios version compatible with snappy" atLineNumber:__LINE__];
             if (![[NSFileManager defaultManager] fileExistsAtPath:@"/usr/bin/snappy"]) {
                 [self logToFile:@"snappy not installed, asking to install it" atLineNumber:__LINE__];
@@ -552,6 +587,10 @@
             [self logToFile:@"user elected to create new orig-fs after restore, excluding snappy" atLineNumber:__LINE__];
             [rsyncMutableArgs addObject:@"--exclude=/usr/bin/snappy"];
         }
+        if ([[_successionPrefs objectForKey:@"unofficial_tethered_downgrade_compatibility"] isEqual:@(1)]) {
+            [self logToFile:@"using unsupported tethered downgrade as requested" atLineNumber:__LINE__];
+            [rsyncMutableArgs addObject:@"--exclude=/usr/share/firmware/"];
+        }
         [self logToFile:[NSString stringWithFormat:@"rsync %@", [rsyncMutableArgs componentsJoinedByString:@" "]] atLineNumber:__LINE__];
         NSArray *rsyncArgs = [NSArray arrayWithArray:rsyncMutableArgs];
         NSTask *rsyncTask = [[NSTask alloc] init];
@@ -575,6 +614,7 @@
         [rsyncTask setArguments:rsyncArgs];
         NSPipe *outputPipe = [NSPipe pipe];
         [rsyncTask setStandardOutput:outputPipe];
+        [rsyncTask setStandardError:outputPipe];
         NSFileHandle *stdoutHandle = [outputPipe fileHandleForReading];
         [stdoutHandle waitForDataInBackgroundAndNotify];
         id observer;
@@ -706,7 +746,7 @@
         }];
         [self logToFile:@"Updating UI to prepare for restore" atLineNumber:__LINE__];
         [[self titleLabel] setText:@"Working, do not leave the app..."];
-        [[self subtitleLabel] setText:@""];
+        [[self subtitleLabel] setText:@"This should take less than 10 seconds."];
         [[self eraseButton] setTitle:@"Restore in progress..." forState:UIControlStateNormal];
         [[self eraseButton] setTitleColor:[UIColor darkGrayColor] forState:UIControlStateNormal];
         [[self eraseButton] setEnabled:FALSE];

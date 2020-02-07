@@ -234,6 +234,7 @@
             // - (void) URLSession:(NSURLSession *)session downloadTask:(NSURLSessionDownloadTask *)downloadTask didFinishDownloadingToURL:(NSURL *)location
             //
             // when finished, which is where I have my code for what to do once the download is finished
+            NSLog(@"SUCCESSIONTESTING: STARTED!");
             [task resume];
         }];
         [getDownloadLinkTask resume];
@@ -316,7 +317,7 @@
         
     } else {
         // If the iOS version isn't in the dict above, then :rip:
-        [self errorAlert:[NSString stringWithFormat:@"Couldn't get codename for your iOS %@\nPlease email me stgardner4@att.net or dm me on reddit u/Samg_is_a_Ninja", deviceBuild]];
+        [self errorAlert:[NSString stringWithFormat:@"Couldn't get codename for your iOS %@\nPlease email me samgisaninja@unc0ver.dev or dm me on reddit u/Samg_is_a_Ninja", deviceBuild]];
         return @"Failed.";
     }
 }
@@ -354,9 +355,8 @@
 
 - (void) URLSession:(NSURLSession *)session downloadTask:(NSURLSessionDownloadTask *)downloadTask didFinishDownloadingToURL:(NSURL *)location {
     // so this method gets executed when "a download finished, and it's located at the NSString returned by [location path]". This presents the problem of, "well, was it a beta version, and it just downloaded the beta information plist from my github, or did it just finish downloading an IPSW?". The filename and extension are not preserved, so the best way I could think of to determine which was to check if the file was big (IPSW) or small (plist).
-    unsigned long long fileSize = [[[NSFileManager defaultManager] attributesOfItemAtPath:[location path] error:nil] fileSize];
-    // the smallest IPSW ever to exist, the iPhone 2G on iPhone OS 1.0, was a whopping 96 MB (wow). This is tiny by today's standards of 3GB IPSWs (and that number continues to grow with each update), but 96 MB is still massive compared to the beta plist.
-    if (fileSize < 96000000) {
+    NSString *downloadTaskURL = [[[downloadTask currentRequest] URL] absoluteString];
+    if ([downloadTaskURL containsString:@".plist"]) {
         // Create a dictionary with the contents of the downloaded plist
         NSDictionary *betaLinks = [NSDictionary dictionaryWithContentsOfFile:[location path]];
         // If the beta plist contains the device's build number...
@@ -379,7 +379,7 @@
                 [task resume];
             } else {
                 // if the device's model isn't in the beta list, then present an alert with an action to send an email to me requesting beta support
-                UIAlertController *requestBetaSupportAlert = [UIAlertController alertControllerWithTitle:@"Your device is not currently supported" message:@"Please send an email with your device model and iOS build number to stgardner4@att.net request support" preferredStyle:UIAlertControllerStyleAlert];
+                UIAlertController *requestBetaSupportAlert = [UIAlertController alertControllerWithTitle:@"Your device is not currently supported" message:@"Please send an email with your device model and iOS build number to samgisaninja@unc0ver.dev request support" preferredStyle:UIAlertControllerStyleAlert];
                 UIAlertAction *dismissAction = [UIAlertAction actionWithTitle:@"Dismiss" style:UIAlertActionStyleCancel handler:nil];
                 [requestBetaSupportAlert addAction:dismissAction];
                 // check to see if the device can send email using the stock mail app
@@ -387,7 +387,7 @@
                     UIAlertAction *sendMailAction = [UIAlertAction actionWithTitle:@"Send email" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
                         MFMailComposeViewController* composeVC = [[MFMailComposeViewController alloc] init];
                         composeVC.mailComposeDelegate = self;
-                        [composeVC setToRecipients:@[@"stgardner4@att.net"]];
+                        [composeVC setToRecipients:@[@"samgisaninja@unc0ver.dev"]];
                         [composeVC setSubject:@"Succession: Add beta support request"];
                         [composeVC setMessageBody:[NSString stringWithFormat:@"%@\n%@", self->deviceBuild, self->deviceModel] isHTML:NO];
                         [self presentViewController:composeVC animated:YES completion:nil];
@@ -397,14 +397,14 @@
                 [self presentViewController:requestBetaSupportAlert animated:TRUE completion:nil];
             }
         } else {
-            UIAlertController *requestBetaSupportAlert = [UIAlertController alertControllerWithTitle:@"Your device is not currently supported" message:@"Please send an email with your device model and iOS build number to stgardner4@att.net request support" preferredStyle:UIAlertControllerStyleAlert];
+            UIAlertController *requestBetaSupportAlert = [UIAlertController alertControllerWithTitle:@"Your device is not currently supported" message:@"Please send an email with your device model and iOS build number to samgisaninja@unc0ver.dev request support" preferredStyle:UIAlertControllerStyleAlert];
             UIAlertAction *dismissAction = [UIAlertAction actionWithTitle:@"Dismiss" style:UIAlertActionStyleCancel handler:nil];
             [requestBetaSupportAlert addAction:dismissAction];
             if ([MFMailComposeViewController canSendMail]) {
                 UIAlertAction *sendMailAction = [UIAlertAction actionWithTitle:@"Send email" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
                     MFMailComposeViewController* composeVC = [[MFMailComposeViewController alloc] init];
                     composeVC.mailComposeDelegate = self;
-                    [composeVC setToRecipients:@[@"stgardner4@att.net"]];
+                    [composeVC setToRecipients:@[@"samgisaninja@unc0ver.dev"]];
                     [composeVC setSubject:@"Succession: Add beta support request"];
                     [composeVC setMessageBody:[NSString stringWithFormat:@"%@\n%@", self->deviceBuild, self->deviceModel] isHTML:NO];
                     [self presentViewController:composeVC animated:YES completion:nil];
@@ -414,6 +414,13 @@
             [self presentViewController:requestBetaSupportAlert animated:TRUE completion:nil];
         }
     } else {
+        unsigned long long fileSize = [[[NSFileManager defaultManager] attributesOfItemAtPath:[location path] error:nil] fileSize];
+        if (fileSize < 96000000) {
+            if ([[[NSString alloc] initWithData:[NSData dataWithContentsOfFile:[location path]] encoding:NSUTF8StringEncoding] containsString:@"Denied"]) {
+                [self errorAlert:[[[downloadTask currentRequest] URL] absoluteString]];
+                return;
+            }
+        }
         // so, the IPSW download is now complete, but it's in... well we don't really know. but iOS knows! to be specific, it exists at [location path]. [location path] is not nearly as easy to work with as /var/mobile/Media/Succession/ipsw.ipsw, so let's move it there.
         dispatch_async(dispatch_get_main_queue(), ^{
             [[self downloadProgressBar] setHidden:TRUE];
@@ -501,7 +508,9 @@
             }];
             [ipswDoesntMatch addAction:overrideAction];
             [ipswDoesntMatch addAction:cancelAction];
-            [self presentViewController:ipswDoesntMatch animated:TRUE completion:nil];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self presentViewController:ipswDoesntMatch animated:TRUE completion:nil];
+            });
         }
     } else {
         UIAlertController *ipswDoesntMatch = [UIAlertController alertControllerWithTitle:@"Provided IPSW does not appear to match this device" message:@"The IPSW you provided does not appear to match this device/iOS version. You may override this warning, but you will most likely bootloop." preferredStyle:UIAlertControllerStyleAlert];
@@ -527,7 +536,9 @@
         }];
         [ipswDoesntMatch addAction:overrideAction];
         [ipswDoesntMatch addAction:cancelAction];
-        [self presentViewController:ipswDoesntMatch animated:TRUE completion:nil];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self presentViewController:ipswDoesntMatch animated:TRUE completion:nil];
+        });
     }
 }
 
