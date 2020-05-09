@@ -58,6 +58,19 @@
             [self presentViewController:activationError animated:TRUE completion:nil];
         }
     }
+    // Don't run on unc0ver 4.0-4.2.X because of restore hang
+    if ([[NSFileManager defaultManager] fileExistsAtPath:@"/usr/libexec/pwnproxy"]) {
+        UIAlertController *pwnproxyError = [UIAlertController alertControllerWithTitle:@"Succession is disabled" message:@"Succession is not compatible with unc0ver 4.0-4.2.1" preferredStyle:UIAlertControllerStyleAlert];
+        UIAlertAction *exitAction = [UIAlertAction actionWithTitle:@"Exit" style:UIAlertActionStyleDestructive handler:^(UIAlertAction * _Nonnull action) {
+            exit(0);
+        }];
+        [pwnproxyError addAction:exitAction];
+        [self presentViewController:pwnproxyError animated:TRUE completion:nil];
+    }
+    // At launch, if both rfs.dmg and ipsw.ipsw exist, that probably means extraction failed, so delete rfs.dmg to force a retry
+    if ([[NSFileManager defaultManager] fileExistsAtPath:@"/var/mobile/Media/Succession/ipsw.ipsw"] && [[NSFileManager defaultManager] fileExistsAtPath:@"/var/mobile/Media/Succession/rfs.dmg"]) {
+        [[NSFileManager defaultManager] removeItemAtPath:@"/var/mobile/Media/Succession/rfs.dmg" error:nil];
+    }
     // Checks if the app has ever been run before
     if (![[NSFileManager defaultManager] fileExistsAtPath:@"/var/mobile/Library/Preferences/com.samgisaninja.SuccessionRestore.plist"]) {
         // Present an alert asking the user to consider donating.
