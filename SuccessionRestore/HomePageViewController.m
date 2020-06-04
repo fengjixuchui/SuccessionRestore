@@ -60,10 +60,8 @@
     }
     // Don't run on unc0ver 4.0-4.2.X because of restore hang
     if ([[NSFileManager defaultManager] fileExistsAtPath:@"/usr/libexec/pwnproxy"]) {
-        UIAlertController *pwnproxyError = [UIAlertController alertControllerWithTitle:@"Succession is disabled" message:@"Succession is not compatible with unc0ver 4.0-4.2.1" preferredStyle:UIAlertControllerStyleAlert];
-        UIAlertAction *exitAction = [UIAlertAction actionWithTitle:@"Exit" style:UIAlertActionStyleDestructive handler:^(UIAlertAction * _Nonnull action) {
-            exit(0);
-        }];
+        UIAlertController *pwnproxyError = [UIAlertController alertControllerWithTitle:@"Warning" message:@"Succession is not compatible with unc0ver 4.0-4.2.1. Please make sure that you are running unc0ver 4.3 or higher." preferredStyle:UIAlertControllerStyleAlert];
+        UIAlertAction *exitAction = [UIAlertAction actionWithTitle:@"Exit" style:UIAlertActionStyleDestructive handler:nil];
         [pwnproxyError addAction:exitAction];
         [self presentViewController:pwnproxyError animated:TRUE completion:nil];
     }
